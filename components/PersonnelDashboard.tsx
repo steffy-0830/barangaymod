@@ -70,6 +70,15 @@ interface MinimalResident {
   email: string
 }
 
+interface ActivityLog {
+  id: string
+  user_id: string
+  user_name: string
+  action: string
+  details?: string
+  created_at: string
+}
+
 export default function PersonnelDashboard({ user }: { user: any }) {
   const [activeSection, setActiveSection] = useState('notifications')
   const [requests, setRequests] = useState<Request[]>([])
@@ -78,7 +87,21 @@ export default function PersonnelDashboard({ user }: { user: any }) {
   const [events, setEvents] = useState<Event[]>([])
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([])
   const [myProfile, setMyProfile] = useState<ResidentProfile | null>(null)
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
+
+  const logActivity = async (action: string, details?: string) => {
+    try {
+      await supabase.from('activity_logs').insert({
+        user_id: user.id,
+        user_name: myProfile?.username || user.email,
+        action,
+        details
+      })
+    } catch (error) {
+      console.error('Error logging activity:', error)
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -87,13 +110,14 @@ export default function PersonnelDashboard({ user }: { user: any }) {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [requestsRes, emergenciesRes, residentsRes, eventsRes, forumRes, profileRes] = await Promise.all([
+      const [requestsRes, emergenciesRes, residentsRes, eventsRes, forumRes, profileRes, logsRes] = await Promise.all([
         supabase.from('requests').select('*').order('created_at', { ascending: false }),
         supabase.from('emergency_reports').select('*').order('created_at', { ascending: false }),
         supabase.from('resident_profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('events_and_announcements').select('*').order('created_at', { ascending: false }),
         supabase.from('forum_posts').select('*').order('created_at', { ascending: true }),
         supabase.from('resident_profiles').select('*').eq('id', user.id).single(),
+        supabase.from('activity_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ])
 
       if (requestsRes.data) setRequests(requestsRes.data)
@@ -102,6 +126,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       if (eventsRes.data) setEvents(eventsRes.data)
       if (forumRes.data) setForumPosts(forumRes.data)
       if (profileRes.data) setMyProfile(profileRes.data)
+      if (logsRes.data) setActivityLogs(logsRes.data)
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -110,6 +135,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
   }
 
   const handleSignOut = async () => {
+    logActivity('Sign Out', 'User signed out')
     await supabase.auth.signOut()
   }
 
@@ -119,6 +145,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('requests').update({ status: 'approved' }).eq('id', id)
       if (error) throw error
       setRequests(requests.map(r => r.id === id ? { ...r, status: 'approved' } : r))
+      logActivity('Approve Request', `Request ID: ${id}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -131,6 +158,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('requests').update({ status: 'rejected', response: reason }).eq('id', id)
       if (error) throw error
       setRequests(requests.map(r => r.id === id ? { ...r, status: 'rejected', response: reason } : r))
+      logActivity('Reject Request', `Request ID: ${id}, Reason: ${reason}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -142,6 +170,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('emergency_reports').update({ status: 'responded' }).eq('id', id)
       if (error) throw error
       setEmergencies(emergencies.map(e => e.id === id ? { ...e, status: 'responded' } : e))
+      logActivity('Respond to Emergency', `Emergency ID: ${id}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -153,6 +182,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('resident_profiles').update({ status: 'validated' }).eq('id', id)
       if (error) throw error
       setResidents(residents.map(r => r.id === id ? { ...r, status: 'validated' } : r))
+      logActivity('Validate Resident Profile', `Resident ID: ${id}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -164,6 +194,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('events_and_announcements').update({ status: 'published' }).eq('id', id)
       if (error) throw error
       setEvents(events.map(e => e.id === id ? { ...e, status: 'published' } : e))
+      logActivity('Publish Event', `Event ID: ${id}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -176,6 +207,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
       const { error } = await supabase.from('events_and_announcements').update({ status: 'denied', denial_reason: reason }).eq('id', id)
       if (error) throw error
       setEvents(events.map(e => e.id === id ? { ...e, status: 'denied', denial_reason: reason } : e))
+      logActivity('Deny Event', `Event ID: ${id}, Reason: ${reason}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -202,6 +234,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
         console.error('Event insert error:', error)
         throw error
       }
+      logActivity('Create Event', `Title: ${newEvent.title}, Status: ${newEvent.status}`)
       if (data) setEvents([...data, ...events])
     } catch (error) {
       console.error('Error:', error)
@@ -253,10 +286,16 @@ export default function PersonnelDashboard({ user }: { user: any }) {
             { id: 'users', label: 'Users' },
             { id: 'events', label: 'Events' },
             { id: 'forum', label: 'Forum' },
+            { id: 'logs', label: 'Activity Logs' },
           ].map((section) => (
             <button
               key={section.id}
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => {
+                if (activeSection !== section.id) {
+                  logActivity('Navigate Section', `From ${activeSection} to ${section.id}`)
+                }
+                setActiveSection(section.id)
+              }}
               className={`px-4 md:px-6 py-2 md:py-3 rounded-md font-medium whitespace-nowrap text-sm md:text-base relative ${
                 activeSection === section.id
                   ? 'bg-[#81B29A] text-white'
@@ -288,6 +327,7 @@ export default function PersonnelDashboard({ user }: { user: any }) {
               user={user}
               existingProfile={myProfile}
               onSuccess={() => fetchData()}
+              logActivity={logActivity}
             />
           )}
           {activeSection === 'validate' && (
@@ -315,10 +355,47 @@ export default function PersonnelDashboard({ user }: { user: any }) {
             />
           )}
           {activeSection === 'forum' && (
-            <ForumSection user={user} forumPosts={forumPosts} onSuccess={fetchData} />
+            <ForumSection user={user} forumPosts={forumPosts} onSuccess={fetchData} logActivity={logActivity} myProfile={myProfile} />
           )}
+          {activeSection === 'logs' && <ActivityLogsSection logs={activityLogs} />}
         </div>
       </div>
+    </div>
+  )
+}
+
+function ActivityLogsSection({ logs }: { logs: ActivityLog[] }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-6 text-[#3D405B]">Activity Logs</h2>
+      {logs.length === 0 ? (
+        <p className="text-[#3D405B] text-center py-8">No activity logs yet</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-3 px-4 text-[#3D405B]">Action</th>
+                <th className="text-left py-3 px-4 text-[#3D405B]">Details</th>
+                <th className="text-left py-3 px-4 text-[#3D405B]">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id} className="border-b hover:bg-[#F4F1DE]">
+                  <td className="py-3 px-4">
+                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-[#81B29A] text-white">
+                      {log.action}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-[#3D405B]">{log.details || '-'}</td>
+                  <td className="py-3 px-4 text-sm text-[#3D405B]">{new Date(log.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -768,7 +845,7 @@ function EventsAnnouncementsSection({
   )
 }
 
-function ForumSection({ user, forumPosts, onSuccess }: { user: any; forumPosts: ForumPost[]; onSuccess: () => void }) {
+function ForumSection({ user, forumPosts, onSuccess, logActivity, myProfile }: { user: any; forumPosts: ForumPost[]; onSuccess: () => void; logActivity: (action: string, details?: string) => void; myProfile: ResidentProfile | null }) {
   const [newPost, setNewPost] = useState('')
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null)
   const [loading, setLoading] = useState(false)
@@ -796,6 +873,11 @@ function ForumSection({ user, forumPosts, onSuccess }: { user: any; forumPosts: 
         parent_id: replyTo?.id || null,
       })
       if (error) throw error
+      if (replyTo) {
+        logActivity('Reply to Forum Post', `Reply to post ID: ${replyTo.id}`)
+      } else {
+        logActivity('Create Forum Post', 'Created new forum post')
+      }
       setNewPost('')
       setReplyTo(null)
       onSuccess()
@@ -822,8 +904,9 @@ function ForumSection({ user, forumPosts, onSuccess }: { user: any; forumPosts: 
     return <span dangerouslySetInnerHTML={{ __html: result }} />
   }
 
-  const parentPosts = forumPosts.filter(post => !post.parent_id)
-  const replies = forumPosts.filter(post => post.parent_id)
+  const visibleForumPosts = forumPosts.filter(post => !post.archived && !post.reported)
+  const parentPosts = visibleForumPosts.filter(post => !post.parent_id)
+  const replies = visibleForumPosts.filter(post => post.parent_id)
 
   return (
     <div>
@@ -892,7 +975,7 @@ function ForumSection({ user, forumPosts, onSuccess }: { user: any; forumPosts: 
   )
 }
 
-function ProfileSection({ user, onSuccess, existingProfile }: { user: any; onSuccess: () => void; existingProfile: ResidentProfile | null }) {
+function ProfileSection({ user, onSuccess, existingProfile, logActivity }: { user: any; onSuccess: () => void; existingProfile: ResidentProfile | null; logActivity: (action: string, details?: string) => void }) {
   const [formData, setFormData] = useState({
     name: existingProfile?.name || '',
     username: existingProfile?.username || '',
@@ -942,6 +1025,7 @@ function ProfileSection({ user, onSuccess, existingProfile }: { user: any; onSuc
           console.error('Update error:', error)
           throw error
         }
+        logActivity('Update Barangay Official Profile', 'Updated personal information')
         alert('Profile updated successfully!')
       } else {
         console.log('Creating new profile')
@@ -958,6 +1042,7 @@ function ProfileSection({ user, onSuccess, existingProfile }: { user: any; onSuc
           console.error('Insert error:', error)
           throw error
         }
+        logActivity('Create Barangay Official Profile', 'Created personal information profile')
         alert('Profile created successfully!')
       }
       onSuccess()

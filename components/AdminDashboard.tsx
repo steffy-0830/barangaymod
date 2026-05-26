@@ -69,6 +69,19 @@ export default function AdminDashboard({ user }: { user: any }) {
   const [sortLogsBy, setSortLogsBy] = useState<'user_name' | 'action' | 'created_at'>('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
+  const logActivity = async (action: string, details?: string) => {
+    try {
+      await supabase.from('activity_logs').insert({
+        user_id: user.id,
+        user_name: user.email,
+        action,
+        details
+      })
+    } catch (error) {
+      console.error('Error logging activity:', error)
+    }
+  }
+
   useEffect(() => {
     fetchData()
   }, [])
@@ -131,6 +144,7 @@ export default function AdminDashboard({ user }: { user: any }) {
   }
 
   const handleSignOut = async () => {
+    logActivity('Sign Out', 'User signed out')
     await supabase.auth.signOut()
   }
 
@@ -143,6 +157,8 @@ export default function AdminDashboard({ user }: { user: any }) {
         .eq('id', userId)
       
       if (error) throw error
+      
+      logActivity('Change User Role', `User ID: ${userId}, New Role: ${newRole}`)
       
       // Update local state
       setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u))
@@ -159,10 +175,12 @@ export default function AdminDashboard({ user }: { user: any }) {
 
   const handleToggleFreeze = (userId: string) => {
     setUsers(users.map(u => u.id === userId ? { ...u, is_frozen: !u.is_frozen } : u))
+    logActivity('Toggle User Freeze', `User ID: ${userId}, Action: ${users.find(u => u.id === userId)?.is_frozen ? 'Unfreeze' : 'Freeze'}`)
   }
 
   const handleDeleteUser = (userId: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
+      logActivity('Delete User', `User ID: ${userId}`)
       setUsers(users.filter(u => u.id !== userId))
     }
   }
@@ -241,12 +259,17 @@ export default function AdminDashboard({ user }: { user: any }) {
             { id: 'users', label: 'Users' },
             { id: 'residents', label: 'Residents' },
             { id: 'barangay_officials', label: 'Barangay Officials' },
-            { id: 'reported_posts', label: 'Reported Posts', count: reportedPosts.length },
+            { id: 'reported_posts', label: 'Reported Post', count: reportedPosts.length },
             { id: 'logs', label: 'Logs' },
           ].map((section) => (
             <button
               key={section.id}
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => {
+                if (activeSection !== section.id) {
+                  logActivity('Navigate Section', `From ${activeSection} to ${section.id}`)
+                }
+                setActiveSection(section.id)
+              }}
               className={`px-4 md:px-6 py-2 md:py-3 rounded-md font-medium whitespace-nowrap text-sm md:text-base relative ${
                 activeSection === section.id
                   ? 'bg-[#81B29A] text-white'
@@ -295,7 +318,7 @@ export default function AdminDashboard({ user }: { user: any }) {
             />
           )}
           {activeSection === 'reported_posts' && (
-            <ReportedPostsSection reportedPosts={reportedPosts} onSuccess={fetchData} />
+            <ReportedPostsSection reportedPosts={reportedPosts} onSuccess={fetchData} logActivity={logActivity} />
           )}
           {activeSection === 'logs' && (
             <ActivityLogsSection
@@ -631,7 +654,7 @@ function ActivityLogsSection({
   )
 }
 
-function ReportedPostsSection({ reportedPosts, onSuccess }: { reportedPosts: ForumPost[]; onSuccess: () => void }) {
+function ReportedPostsSection({ reportedPosts, onSuccess, logActivity }: { reportedPosts: ForumPost[]; onSuccess: () => void; logActivity: (action: string, details?: string) => void }) {
   const handleDismissReport = async (postId: string) => {
     if (!confirm('Are you sure you want to dismiss this report?')) return
     try {
@@ -640,6 +663,7 @@ function ReportedPostsSection({ reportedPosts, onSuccess }: { reportedPosts: For
         .update({ reported: false, report_reason: null })
         .eq('id', postId)
       if (error) throw error
+      logActivity('Dismiss Report', `Post ID: ${postId}`)
       onSuccess()
       alert('Report dismissed successfully!')
     } catch (error) {
@@ -656,6 +680,7 @@ function ReportedPostsSection({ reportedPosts, onSuccess }: { reportedPosts: For
         .delete()
         .eq('id', postId)
       if (error) throw error
+      logActivity('Delete Forum Post', `Post ID: ${postId}`)
       onSuccess()
       alert('Post deleted successfully!')
     } catch (error) {
@@ -666,7 +691,7 @@ function ReportedPostsSection({ reportedPosts, onSuccess }: { reportedPosts: For
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6 text-[#3D405B]">Reported Posts</h2>
+      <h2 className="text-2xl font-bold mb-6 text-[#3D405B]">Reported Post</h2>
       {reportedPosts.length === 0 ? (
         <p className="text-[#3D405B] text-center py-8">No reported posts</p>
       ) : (

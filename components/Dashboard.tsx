@@ -73,6 +73,15 @@ interface MinimalResident {
   email: string
 }
 
+interface ActivityLog {
+  id: string
+  user_id: string
+  user_name: string
+  action: string
+  details?: string
+  created_at: string
+}
+
 export default function Dashboard({ user }: { user: any }) {
   const [activeSection, setActiveSection] = useState('notifications')
   const userRole = (user.user_metadata?.role || 'resident') as UserRole
@@ -83,7 +92,21 @@ export default function Dashboard({ user }: { user: any }) {
   const [showHiddenNotifications, setShowHiddenNotifications] = useState(false)
   const [residentProfile, setResidentProfile] = useState<ResidentProfile | null>(null)
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([])
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
+
+  const logActivity = async (action: string, details?: string) => {
+    try {
+      await supabase.from('activity_logs').insert({
+        user_id: user.id,
+        user_name: residentProfile?.username || user.email,
+        action,
+        details
+      })
+    } catch (error) {
+      console.error('Error logging activity:', error)
+    }
+  }
 
   const visibleNotifications = showHiddenNotifications 
     ? notifications 
@@ -91,10 +114,12 @@ export default function Dashboard({ user }: { user: any }) {
 
   const handleHideNotification = (id: string) => {
     setHiddenNotificationIds(prev => [...prev, id])
+    logActivity('Hide Notification', `Notification ID: ${id}`)
   }
 
   const handleShowHiddenNotifications = () => {
     setShowHiddenNotifications(prev => !prev)
+    logActivity('Toggle Hidden Notifications', showHiddenNotifications ? 'Hid hidden notifications' : 'Showed hidden notifications')
   }
 
   const handleArchiveForumPost = async (postId: string) => {
@@ -102,6 +127,7 @@ export default function Dashboard({ user }: { user: any }) {
       const { error } = await supabase.from('forum_posts').update({ archived: true }).eq('id', postId)
       if (error) throw error
       setForumPosts(prev => prev.map(p => p.id === postId ? { ...p, archived: true } : p))
+      logActivity('Archive Forum Post', `Post ID: ${postId}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -115,6 +141,7 @@ export default function Dashboard({ user }: { user: any }) {
       if (error) throw error
       setForumPosts(prev => prev.map(p => p.id === postId ? { ...p, reported: true, report_reason: reason } : p))
       alert('Post reported successfully!')
+      logActivity('Report Forum Post', `Post ID: ${postId}, Reason: ${reason}`)
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     }
@@ -127,11 +154,12 @@ export default function Dashboard({ user }: { user: any }) {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [requestsRes, eventsRes, profileRes, forumRes] = await Promise.all([
+      const [requestsRes, eventsRes, profileRes, forumRes, logsRes] = await Promise.all([
         supabase.from('requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('events_and_announcements').select('*').eq('status', 'published').order('created_at', { ascending: false }),
         supabase.from('resident_profiles').select('*').eq('id', user.id).maybeSingle(),
         supabase.from('forum_posts').select('*').order('created_at', { ascending: true }),
+        supabase.from('activity_logs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ])
 
       if (requestsRes.data) {
@@ -169,6 +197,10 @@ export default function Dashboard({ user }: { user: any }) {
       if (forumRes.data) {
         setForumPosts(forumRes.data)
       }
+
+      if (logsRes.data) {
+        setActivityLogs(logsRes.data)
+      }
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -177,6 +209,7 @@ export default function Dashboard({ user }: { user: any }) {
   }
 
   const handleSignOut = async () => {
+    logActivity('Sign Out', 'User signed out')
     await supabase.auth.signOut()
   }
 
@@ -225,10 +258,16 @@ export default function Dashboard({ user }: { user: any }) {
             { id: 'emergency', label: 'Emergency' },
             { id: 'events', label: 'Events' },
             { id: 'forum', label: 'Forum' },
+            { id: 'logs', label: 'Activity Logs' },
           ].map((section) => (
             <button
               key={section.id}
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => {
+                if (activeSection !== section.id) {
+                  logActivity('Navigate Section', `From ${activeSection} to ${section.id}`)
+                }
+                setActiveSection(section.id)
+              }}
               className={`px-4 md:px-6 py-2 md:py-3 rounded-md font-medium whitespace-nowrap text-sm md:text-base relative ${
                 activeSection === section.id
                   ? 'bg-[#81B29A] text-white'
@@ -247,11 +286,12 @@ export default function Dashboard({ user }: { user: any }) {
 
         <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
           {activeSection === 'notifications' && <NotificationsSection notifications={visibleNotifications} onHideNotification={handleHideNotification} showHiddenNotifications={showHiddenNotifications} onToggleShowHidden={handleShowHiddenNotifications} />}
-          {activeSection === 'resident' && <ResidentSection user={user} onSuccess={fetchData} existingProfile={residentProfile} />}
-          {activeSection === 'requests' && <RequestsSection user={user} onSuccess={fetchData} requests={requests} />}
-          {activeSection === 'emergency' && <EmergencySection user={user} />}
+          {activeSection === 'resident' && <ResidentSection user={user} onSuccess={fetchData} existingProfile={residentProfile} logActivity={logActivity} />}
+          {activeSection === 'requests' && <RequestsSection user={user} onSuccess={fetchData} requests={requests} logActivity={logActivity} />}
+          {activeSection === 'emergency' && <EmergencySection user={user} logActivity={logActivity} />}
           {activeSection === 'events' && <EventsSection events={events} />}
-          {activeSection === 'forum' && <ForumSection user={user} forumPosts={forumPosts} onSuccess={fetchData} existingProfile={residentProfile} onArchivePost={handleArchiveForumPost} onReportPost={handleReportForumPost} />}
+          {activeSection === 'forum' && <ForumSection user={user} forumPosts={forumPosts} onSuccess={fetchData} existingProfile={residentProfile} onArchivePost={handleArchiveForumPost} onReportPost={handleReportForumPost} logActivity={logActivity} />}
+          {activeSection === 'logs' && <ActivityLogsSection logs={activityLogs} />}
         </div>
       </div>
     </div>
@@ -329,7 +369,7 @@ function NotificationsSection({
   )
 }
 
-function ResidentSection({ user, onSuccess, existingProfile }: { user: any; onSuccess: () => void; existingProfile: ResidentProfile | null }) {
+function ResidentSection({ user, onSuccess, existingProfile, logActivity }: { user: any; onSuccess: () => void; existingProfile: ResidentProfile | null; logActivity: (action: string, details?: string) => void }) {
   const [formData, setFormData] = useState({
     name: existingProfile?.name || '',
     username: existingProfile?.username || '',
@@ -379,6 +419,7 @@ function ResidentSection({ user, onSuccess, existingProfile }: { user: any; onSu
           console.error('Update error:', error)
           throw error
         }
+        logActivity('Update Resident Profile', 'Updated personal information')
         alert('Profile updated successfully!')
       } else {
         console.log('Creating new profile')
@@ -394,6 +435,7 @@ function ResidentSection({ user, onSuccess, existingProfile }: { user: any; onSu
           console.error('Insert error:', error)
           throw error
         }
+        logActivity('Create Resident Profile', 'Created personal information profile')
         alert('Profile created successfully!')
       }
       onSuccess()
@@ -480,7 +522,7 @@ function ResidentSection({ user, onSuccess, existingProfile }: { user: any; onSu
   )
 }
 
-function RequestsSection({ user, onSuccess, requests }: { user: any; onSuccess: () => void; requests: Request[] }) {
+function RequestsSection({ user, onSuccess, requests, logActivity }: { user: any; onSuccess: () => void; requests: Request[]; logActivity: (action: string, details?: string) => void }) {
   const [formData, setFormData] = useState({
     type: '',
     description: '',
@@ -499,6 +541,7 @@ function RequestsSection({ user, onSuccess, requests }: { user: any; onSuccess: 
         status: 'pending',
       })
       if (error) throw error
+      logActivity('Submit Request', `Type: ${formData.type}`)
       alert('Request submitted successfully!')
       setFormData({ type: '', description: '' })
       onSuccess()
@@ -514,6 +557,7 @@ function RequestsSection({ user, onSuccess, requests }: { user: any; onSuccess: 
     try {
       const { error } = await supabase.from('requests').update({ status: 'cancelled' }).eq('id', requestId)
       if (error) throw error
+      logActivity('Cancel Request', `Request ID: ${requestId}`)
       alert('Request cancelled successfully!')
       onSuccess()
     } catch (error) {
@@ -619,7 +663,7 @@ function RequestsSection({ user, onSuccess, requests }: { user: any; onSuccess: 
   )
 }
 
-function EmergencySection({ user }: { user: any }) {
+function EmergencySection({ user, logActivity }: { user: any; logActivity: (action: string, details?: string) => void }) {
   const [formData, setFormData] = useState({
     type: '',
     location: '',
@@ -640,12 +684,20 @@ function EmergencySection({ user }: { user: any }) {
         contact: formData.contact,
       })
       if (error) throw error
+      logActivity('Submit Emergency Report', `Type: ${formData.type}`)
       alert('Emergency report submitted successfully!')
       setFormData({ type: '', location: '', description: '', contact: '' })
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleContactChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, '')
+    if (value.length <= 11) {
+      setFormData({ ...formData, contact: value })
     }
   }
 
@@ -690,18 +742,21 @@ function EmergencySection({ user }: { user: any }) {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number (11 digits only)</label>
           <input
-            type="tel"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]{11}"
             value={formData.contact}
-            onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
+            onChange={handleContactChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            placeholder="09123456789"
             required
           />
         </div>
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || formData.contact.length !== 11}
           className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
         >
           {loading ? 'Submitting...' : 'Submit Emergency Report'}
@@ -751,7 +806,7 @@ function EventsSection({ events }: { events: Event[] }) {
   )
 }
 
-function ForumSection({ user, forumPosts, onSuccess, existingProfile, onArchivePost, onReportPost }: { user: any; forumPosts: ForumPost[]; onSuccess: () => void; existingProfile: ResidentProfile | null; onArchivePost: (id: string) => void; onReportPost: (id: string) => void }) {
+function ForumSection({ user, forumPosts, onSuccess, existingProfile, onArchivePost, onReportPost, logActivity }: { user: any; forumPosts: ForumPost[]; onSuccess: () => void; existingProfile: ResidentProfile | null; onArchivePost: (id: string) => void; onReportPost: (id: string) => void; logActivity: (action: string, details?: string) => void }) {
   const [newPost, setNewPost] = useState('')
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null)
   const [loading, setLoading] = useState(false)
@@ -778,6 +833,11 @@ function ForumSection({ user, forumPosts, onSuccess, existingProfile, onArchiveP
         parent_id: replyTo?.id || null,
       })
       if (error) throw error
+      if (replyTo) {
+        logActivity('Reply to Forum Post', `Reply to post ID: ${replyTo.id}`)
+      } else {
+        logActivity('Create Forum Post', 'Created new forum post')
+      }
       setNewPost('')
       setReplyTo(null)
       onSuccess()
@@ -804,7 +864,7 @@ function ForumSection({ user, forumPosts, onSuccess, existingProfile, onArchiveP
     return <span dangerouslySetInnerHTML={{ __html: result }} />
   }
 
-  const visibleForumPosts = forumPosts.filter(post => !post.archived)
+  const visibleForumPosts = forumPosts.filter(post => !post.archived && !post.reported)
   const parentPosts = visibleForumPosts.filter(post => !post.parent_id)
   const replies = visibleForumPosts.filter(post => post.parent_id)
 
@@ -905,6 +965,42 @@ function ForumSection({ user, forumPosts, onSuccess, existingProfile, onArchiveP
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+function ActivityLogsSection({ logs }: { logs: ActivityLog[] }) {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-6 text-[#3D405B]">Activity Logs</h2>
+      {logs.length === 0 ? (
+        <p className="text-[#3D405B] text-center py-8">No activity logs yet</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-3 px-4 text-[#3D405B]">Action</th>
+                <th className="text-left py-3 px-4 text-[#3D405B]">Details</th>
+                <th className="text-left py-3 px-4 text-[#3D405B]">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id} className="border-b hover:bg-[#F4F1DE]">
+                  <td className="py-3 px-4">
+                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-[#81B29A] text-white">
+                      {log.action}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-[#3D405B]">{log.details || '-'}</td>
+                  <td className="py-3 px-4 text-sm text-[#3D405B]">{new Date(log.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

@@ -9,25 +9,73 @@ import PersonnelDashboard from '../components/PersonnelDashboard'
 
 type UserRole = 'resident' | 'barangay_official' | 'admin'
 
+const logActivity = async (action: string, user_id: string, user_name: string, details?: string) => {
+  try {
+    await supabase.from('activity_logs').insert({
+      user_id,
+      user_name,
+      action,
+      details
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
 export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [hasLoggedSession, setHasLoggedSession] = useState(false)
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: any, session: any) => {
+      async (_event: any, session: any) => {
         setUser(session?.user ?? null)
         setLoading(false)
+        if (session?.user && !hasLoggedSession) {
+          let user_name = session.user.email
+          try {
+            const { data } = await supabase
+              .from('resident_profiles')
+              .select('username')
+              .eq('id', session.user.id)
+              .maybeSingle()
+            if (data?.username) {
+              user_name = data.username
+            }
+          } catch (e) {
+            console.error('Error fetching username:', e)
+          }
+          await logActivity('Login', session.user.id, user_name, 'User logged into dashboard')
+          setHasLoggedSession(true)
+        }
       }
     )
 
-    supabase.auth.getSession().then(({ data: { session } }: { data: { session: any } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: any } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
+      if (session?.user && !hasLoggedSession) {
+        let user_name = session.user.email
+        try {
+          const { data } = await supabase
+            .from('resident_profiles')
+            .select('username')
+            .eq('id', session.user.id)
+            .maybeSingle()
+          if (data?.username) {
+            user_name = data.username
+          }
+        } catch (e) {
+          console.error('Error fetching username:', e)
+        }
+        await logActivity('Login', session.user.id, user_name, 'User logged into dashboard')
+        setHasLoggedSession(true)
+      }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [hasLoggedSession])
 
   if (loading) {
     return (

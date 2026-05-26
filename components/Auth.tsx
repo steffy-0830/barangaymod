@@ -5,6 +5,19 @@ import { supabase } from '../lib/supabase'
 
 type UserRole = 'resident' | 'barangay_official' | 'admin'
 
+const logActivity = async (action: string, user_id: string, user_name: string, details?: string) => {
+  try {
+    await supabase.from('activity_logs').insert({
+      user_id,
+      user_name,
+      action,
+      details
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
 export default function Auth() {
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState('')
@@ -36,20 +49,25 @@ export default function Auth() {
 
       if (isLogin) {
         let loginEmail = email
+        let loginUsername = email
         if (!email.includes('@')) {
           const { data } = await supabase
             .from('resident_profiles')
-            .select('email')
+            .select('email, username')
             .eq('username', email)
             .single()
           if (!data) throw new Error('Username not found')
           loginEmail = data.email
+          loginUsername = data.username
         }
-        const { error } = await supabase.auth.signInWithPassword({ 
+        const { data: authData, error } = await supabase.auth.signInWithPassword({ 
           email: loginEmail, 
           password 
         })
         if (error) throw error
+        if (authData.user) {
+          await logActivity('Login', authData.user.id, loginUsername, 'User logged in')
+        }
       } else {
         if (!username.trim()) throw new Error('Username is required')
         
@@ -72,6 +90,9 @@ export default function Auth() {
           }
         })
         if (error) throw error
+        if (authData.user) {
+          await logActivity('Register', authData.user.id, username, `Registered as ${selectedRole}`)
+        }
       }
     } catch (error) {
       alert(error instanceof Error ? error.message : 'An error occurred')
