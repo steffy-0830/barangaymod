@@ -61,6 +61,9 @@ interface ForumPost {
   content: string
   parent_id: string | null
   created_at: string
+  archived?: boolean
+  reported?: boolean
+  report_reason?: string
 }
 
 interface MinimalResident {
