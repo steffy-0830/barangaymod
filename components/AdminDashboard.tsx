@@ -42,12 +42,25 @@ interface ActivityLog {
   created_at: string
 }
 
+interface ForumPost {
+  id: string
+  user_id: string
+  user_name: string
+  content: string
+  parent_id: string | null
+  created_at: string
+  archived?: boolean
+  reported?: boolean
+  report_reason?: string
+}
+
 export default function AdminDashboard({ user }: { user: any }) {
   const [activeSection, setActiveSection] = useState('users')
   const [users, setUsers] = useState<User[]>([])
   const [residents, setResidents] = useState<ResidentProfile[]>([])
   const [barangayOfficials, setBarangayOfficials] = useState<ResidentProfile[]>([])
   const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [reportedPosts, setReportedPosts] = useState<ForumPost[]>([])
   const [loading, setLoading] = useState(true)
 
   const [sortUsersBy, setSortUsersBy] = useState<'email' | 'role' | 'created_at'>('created_at')
@@ -64,13 +77,15 @@ export default function AdminDashboard({ user }: { user: any }) {
     setLoading(true)
     try {
       console.log('=== Fetching admin data ===')
-      const [residentsRes, logsRes] = await Promise.all([
+      const [residentsRes, logsRes, reportedPostsRes] = await Promise.all([
         supabase.from('resident_profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('activity_logs').select('*').order('created_at', { ascending: false }),
+        supabase.from('forum_posts').select('*').eq('reported', true).order('created_at', { ascending: false }),
       ])
       
       console.log('Residents result:', residentsRes)
       console.log('Logs result:', logsRes)
+      console.log('Reported posts result:', reportedPostsRes)
       
       if (residentsRes.data) {
         setResidents(residentsRes.data)
@@ -98,6 +113,10 @@ export default function AdminDashboard({ user }: { user: any }) {
           { id: '2', user_id: '2', user_name: 'official1', action: 'Created Event', details: 'Created community event', created_at: new Date(Date.now() - 86400000).toISOString() },
           { id: '3', user_id: '1', user_name: 'resident1', action: 'Updated Profile', details: 'Updated resident information', created_at: new Date(Date.now() - 172800000).toISOString() },
         ])
+      }
+      
+      if (reportedPostsRes.data) {
+        setReportedPosts(reportedPostsRes.data)
       }
     } catch (error) {
       console.error('Error fetching data:', error)
@@ -222,18 +241,24 @@ export default function AdminDashboard({ user }: { user: any }) {
             { id: 'users', label: 'Users' },
             { id: 'residents', label: 'Residents' },
             { id: 'barangay_officials', label: 'Barangay Officials' },
+            { id: 'reported_posts', label: 'Reported Posts', count: reportedPosts.length },
             { id: 'logs', label: 'Logs' },
           ].map((section) => (
             <button
               key={section.id}
               onClick={() => setActiveSection(section.id)}
-              className={`px-4 md:px-6 py-2 md:py-3 rounded-md font-medium whitespace-nowrap text-sm md:text-base ${
+              className={`px-4 md:px-6 py-2 md:py-3 rounded-md font-medium whitespace-nowrap text-sm md:text-base relative ${
                 activeSection === section.id
                   ? 'bg-[#81B29A] text-white'
                   : 'bg-white text-[#3D405B] hover:bg-[#F2CC8F]'
               }`}
             >
               {section.label}
+              {section.count && section.count > 0 && (
+                <span className="absolute -top-1 -right-1 bg-[#E07A5F] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {section.count}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -268,6 +293,9 @@ export default function AdminDashboard({ user }: { user: any }) {
               sortOrder={sortOrder}
               setSortOrder={setSortOrder}
             />
+          )}
+          {activeSection === 'reported_posts' && (
+            <ReportedPostsSection reportedPosts={reportedPosts} onSuccess={fetchData} />
           )}
           {activeSection === 'logs' && (
             <ActivityLogsSection
@@ -599,6 +627,82 @@ function ActivityLogsSection({
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function ReportedPostsSection({ reportedPosts, onSuccess }: { reportedPosts: ForumPost[]; onSuccess: () => void }) {
+  const handleDismissReport = async (postId: string) => {
+    if (!confirm('Are you sure you want to dismiss this report?')) return
+    try {
+      const { error } = await supabase
+        .from('forum_posts')
+        .update({ reported: false, report_reason: null })
+        .eq('id', postId)
+      if (error) throw error
+      onSuccess()
+      alert('Report dismissed successfully!')
+    } catch (error) {
+      console.error('Error dismissing report:', error)
+      alert('Error dismissing report. Please try again.')
+    }
+  }
+
+  const handleDeletePost = async (postId: string) => {
+    if (!confirm('Are you sure you want to delete this post? This action cannot be undone.')) return
+    try {
+      const { error } = await supabase
+        .from('forum_posts')
+        .delete()
+        .eq('id', postId)
+      if (error) throw error
+      onSuccess()
+      alert('Post deleted successfully!')
+    } catch (error) {
+      console.error('Error deleting post:', error)
+      alert('Error deleting post. Please try again.')
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-6 text-[#3D405B]">Reported Posts</h2>
+      {reportedPosts.length === 0 ? (
+        <p className="text-[#3D405B] text-center py-8">No reported posts</p>
+      ) : (
+        <div className="space-y-4">
+          {reportedPosts.map((post) => (
+            <div key={post.id} className="p-4 border-2 border-[#E07A5F] rounded-lg bg-[#F4F1DE]">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <span className="font-bold text-[#3D405B]">{post.user_name}</span>
+                  <span className="text-xs text-[#3D405B] ml-2">{new Date(post.created_at).toLocaleString()}</span>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => handleDismissReport(post.id)}
+                    className="px-3 py-1 bg-[#81B29A] text-white text-sm rounded-md hover:bg-[#71a28a]"
+                  >
+                    Dismiss Report
+                  </button>
+                  <button
+                    onClick={() => handleDeletePost(post.id)}
+                    className="px-3 py-1 bg-[#E07A5F] text-white text-sm rounded-md hover:bg-[#d06a55]"
+                  >
+                    Delete Post
+                  </button>
+                </div>
+              </div>
+              {post.report_reason && (
+                <div className="mb-2 p-2 bg-[#E07A5F] bg-opacity-10 rounded">
+                  <p className="text-sm text-[#E07A5F]"><strong>Report Reason:</strong> {post.report_reason}</p>
+                </div>
+              )}
+              <p className="text-[#3D405B]">{post.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

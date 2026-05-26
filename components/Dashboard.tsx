@@ -80,14 +80,21 @@ export default function Dashboard({ user }: { user: any }) {
   const [events, setEvents] = useState<Event[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [hiddenNotificationIds, setHiddenNotificationIds] = useState<string[]>([])
+  const [showHiddenNotifications, setShowHiddenNotifications] = useState(false)
   const [residentProfile, setResidentProfile] = useState<ResidentProfile | null>(null)
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([])
   const [loading, setLoading] = useState(true)
 
-  const visibleNotifications = notifications.filter(n => !hiddenNotificationIds.includes(n.id))
+  const visibleNotifications = showHiddenNotifications 
+    ? notifications 
+    : notifications.filter(n => !hiddenNotificationIds.includes(n.id))
 
   const handleHideNotification = (id: string) => {
     setHiddenNotificationIds(prev => [...prev, id])
+  }
+
+  const handleShowHiddenNotifications = () => {
+    setShowHiddenNotifications(prev => !prev)
   }
 
   const handleArchiveForumPost = async (postId: string) => {
@@ -239,7 +246,7 @@ export default function Dashboard({ user }: { user: any }) {
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-          {activeSection === 'notifications' && <NotificationsSection notifications={visibleNotifications} onHideNotification={handleHideNotification} />}
+          {activeSection === 'notifications' && <NotificationsSection notifications={visibleNotifications} onHideNotification={handleHideNotification} showHiddenNotifications={showHiddenNotifications} onToggleShowHidden={handleShowHiddenNotifications} />}
           {activeSection === 'resident' && <ResidentSection user={user} onSuccess={fetchData} existingProfile={residentProfile} />}
           {activeSection === 'requests' && <RequestsSection user={user} onSuccess={fetchData} requests={requests} />}
           {activeSection === 'emergency' && <EmergencySection user={user} />}
@@ -251,34 +258,52 @@ export default function Dashboard({ user }: { user: any }) {
   )
 }
 
-function NotificationsSection({ notifications, onHideNotification }: { notifications: Notification[]; onHideNotification: (id: string) => void }) {
+function NotificationsSection({ 
+  notifications, 
+  onHideNotification, 
+  showHiddenNotifications, 
+  onToggleShowHidden 
+}: { 
+  notifications: Notification[]; 
+  onHideNotification: (id: string) => void;
+  showHiddenNotifications: boolean;
+  onToggleShowHidden: () => void;
+}) {
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Notifications</h2>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-[#3D405B]">Notifications</h2>
+        <button
+          onClick={onToggleShowHidden}
+          className="px-4 py-2 bg-[#F2CC8F] text-[#3D405B] rounded-md hover:bg-[#E2BC7F]"
+        >
+          {showHiddenNotifications ? 'Hide Hidden Notifications' : 'Show Hidden Notifications'}
+        </button>
+      </div>
       {notifications.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">No notifications yet</p>
+        <p className="text-[#3D405B] text-center py-8">No notifications yet</p>
       ) : (
         <div className="space-y-4">
           {notifications.map((notif) => (
             <div
               key={notif.id}
               className={`p-4 rounded-lg border ${
-                notif.type === 'request_approved' ? 'border-green-200 bg-green-50' :
-                notif.type === 'request_rejected' ? 'border-red-200 bg-red-50' :
-                'border-blue-200 bg-blue-50'
+                notif.type === 'request_approved' ? 'border-[#81B29A] bg-[#F4F1DE]' :
+                notif.type === 'request_rejected' ? 'border-[#E07A5F] bg-[#F4F1DE]' :
+                'border-[#81B29A] bg-[#F4F1DE]'
               }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <h3 className={`font-bold ${
-                    notif.type === 'request_approved' ? 'text-green-800' :
-                    notif.type === 'request_rejected' ? 'text-red-800' :
-                    'text-blue-800'
+                    notif.type === 'request_approved' ? 'text-[#81B29A]' :
+                    notif.type === 'request_rejected' ? 'text-[#E07A5F]' :
+                    'text-[#81B29A]'
                   }`}>
                     {notif.title}
                   </h3>
-                  <p className="mt-1 text-gray-700">{notif.message}</p>
-                  <p className="mt-2 text-xs text-gray-500">{new Date(notif.created_at).toLocaleString()}</p>
+                  <p className="mt-1 text-[#3D405B]">{notif.message}</p>
+                  <p className="mt-2 text-xs text-[#3D405B]">{new Date(notif.created_at).toLocaleString()}</p>
                 </div>
                 <div className="flex flex-col items-end space-y-2 ml-4">
                   <div>
@@ -286,12 +311,14 @@ function NotificationsSection({ notifications, onHideNotification }: { notificat
                     {notif.type === 'request_rejected' && <span className="text-2xl">❌</span>}
                     {notif.type === 'event_published' && <span className="text-2xl">📢</span>}
                   </div>
-                  <button
-                    onClick={() => onHideNotification(notif.id)}
-                    className="text-xs text-gray-500 hover:text-gray-700 hover:underline"
-                  >
-                    Hide
-                  </button>
+                  {!showHiddenNotifications && (
+                    <button
+                      onClick={() => onHideNotification(notif.id)}
+                      className="text-xs text-[#3D405B] hover:text-[#E07A5F] hover:underline"
+                    >
+                      Hide
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
