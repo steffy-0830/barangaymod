@@ -1,0 +1,27 @@
+  const handleAddEvent = async (newEvent: Omit<Event, 'id' | 'created_at'>) => {
+    console.log('=== Adding event ===')
+    console.log('New event data:', newEvent)
+    try {
+      const { data, error } = await supabase.from('events_and_announcements').insert({
+        created_by: user.id,
+        title: newEvent.title,
+        date: newEvent.date,
+        time: newEvent.start_time, // Set time to start_time for backwards compatibility
+        start_time: newEvent.start_time,
+        end_time: newEvent.end_time,
+        location: newEvent.location,
+        description: newEvent.description,
+        status: newEvent.status,
+        denial_reason: newEvent.denial_reason || null,
+        expires_at: newEvent.expires_at || null,
+      }).select()
+      if (error) {
+        console.error('Event insert error:', error)
+        throw error
+      }
+      if (data) setEvents([...data, ...events])
+    } catch (error) {
+      console.error('Error:', error)
+      alert(error instanceof Error ? error.message : 'An error occurred')
+    }
+  }
